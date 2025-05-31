@@ -23,6 +23,7 @@ import LogDensityProblems: logdensity, dimension, capabilities
 using Pigeons
 using Pigeons: HMC
 using Pigeons: record_default
+import Pigeons: initialization, sample_iid!
 import TransformVariables: AbstractTransform
 using MCMCChains
 using StatsPlots
@@ -37,7 +38,7 @@ direction(c1, c2) = atan(c1.x - c2.x,  c1.y - c2.y)
 # ----------- Bayesian problem
 # p(X_t | X_{t_1}, X_{t-2}), movement model
 function log_p_moveRW(c1, c2)
-    σ = 3.0 #1
+    σ = 1.0 #1
     logpdf(Normal(c2.x, σ), c1.x) +
         logpdf(Normal(c2.y, σ), c1.y)  #uniform
 end
@@ -61,7 +62,7 @@ function log_prob_signal(signal, s::NamedTuple, device::Receiver)
 
     d0 = device.dist
     #k = device.k
-    k = 10
+    k = 2
     prob_detect = 1 - 1/(1 + exp(-(d - d0)/k))
 
     if signal == :detect
@@ -89,7 +90,7 @@ function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, map_int)
     max_depth = get_depth(s, map_int)
 
     # not a very realsitc choise
-    dist = Normal(max_depth, 0.5)   # 2
+    dist = Normal(max_depth, 1)   # 2
     logpdf(dist, signal)
 
     # -- truncated distributions to avoid land
@@ -109,11 +110,11 @@ end
 
 function log_prior(S::Vector{T}) where T <: NamedTuple  #The reference function
     lp = 0.0
-    μ = 3.0
-    σ = 5.0 
+    #μ = 3.0
+    #σ = 5.0 
     for t in 2:length(S)
         d = dist(S[t], S[t-1])
-        lp += logpdf(Normal(μ, σ), d)
+        lp += log_p_moveRW(S[t], S[t-1])
     end
     return lp
 end
@@ -188,41 +189,85 @@ end
 
 function simulateRW_s_init(tmax; s0=(x=100.0, y=100.0),
                            xdim=(1,400), ydim=(1,200),
-                           sigma = 40.0)
+                           sigma = 3.0 , rng  = Random.GLOBAL_RNG)
+    #x = fill(-Inf, tmax)
+    #y = fill(-Inf, tmax)
+    x = zeros(tmax);  y = zeros(tmax)
 
-    x = fill(-Inf, tmax)
-    y = fill(-Inf, tmax)
     x[1] = s0.x
     y[1] = s0.y
     for t in 2:tmax
         while x[t] < xdim[1] || x[t] > xdim[2]
-            Δx = randn()*sigma
+            Δx = randn(rng)*sigma
             x[t] = x[t-1] + Δx
         end
         while y[t] < ydim[1] || y[t] > ydim[2]
-            Δy = randn()*sigma
+            Δy = randn(rng)*sigma
             y[t] = y[t-1] + Δy
         end
     end
 
     [(x=x[t], y=y[t]) for t in 1:tmax]
+end 
+
+
+
+#=
+function simulateRW_s_init(tmax; s0=(x=100.0, y=100.0),
+                           xdim=(1,400), ydim=(1,200),
+                           sigma = 40.0,
+                           bathymetry_int=nothing)
+
+    while true  # ciclo finché non trovi una traiettoria tutta in acqua
+        x = fill(-Inf, tmax)
+        y = fill(-Inf, tmax)
+        x[1] = s0.x
+        y[1] = s0.y
+        valid = true
+        for t in 2:tmax
+            # genera x valido
+            while x[t] < xdim[1] || x[t] > xdim[2]
+                Δx = randn()*sigma
+                x[t] = x[t-1] + Δx
+            end
+            # genera y valido
+            while y[t] < ydim[1] || y[t] > ydim[2]
+                Δy = randn()*sigma
+                y[t] = y[t-1] + Δy
+            end
+            # controllo bathymetry: scarta se su terra (depth == -1)
+            if bathymetry_int !== nothing
+                depth = get_depth((x=x[t], y=y[t]), bathymetry_int)
+                if depth == -1
+                    valid = false
+                    break
+                end
+            end
+        end
+        if valid
+            return [(x=x[t], y=y[t]) for t in 1:tmax]
+        end
+        # altrimenti riprova da capo
+    end
 end
+=#
 
-
-function simulate_bridge(tmax; A, B, σ = 3.0, α = 0.7, bathymetry_int)
+function simulate_bridge(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
     x = zeros(tmax);  y = zeros(tmax)
     x[1] = A.x;       y[1] = A.y
+    
     for t in 2:tmax
         τ = tmax - t + 1
         σ_eff = σ #* sqrt(τ / tmax)
         found = false
         b_prev = get_depth((x=x[t-1], y=y[t-1]), bathymetry_int)
+        #print(b_prev, "\n")
         for _ in 1:40
             x_cand = x[t-1] + randn()*σ_eff + α * (B.x - x[t-1]) / τ
             y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
             b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
             # Constraint: the difference betw two consecutive depth measurements can't be too high
-            if b_cand > 0 && abs(b_cand - b_prev) ≤ 10
+            if b_cand > 0 && abs(b_cand - b_prev) ≤ 5
                 x[t], y[t] = x_cand, y_cand
                 found = true
                 break
@@ -230,12 +275,43 @@ function simulate_bridge(tmax; A, B, σ = 3.0, α = 0.7, bathymetry_int)
         end
         if !found
             #@info "No point found at iteration $t, function suspended."
+            #print(x[1], y[1], "\n")
             return nothing  # esci subito se non trovi acqua
         end
     end
     [(x=x[t], y=y[t]) for t in 1:tmax]
 end
 
+
+function simulate_bridge_2(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
+    x = zeros(tmax);  y = zeros(tmax)
+    x[1] = A.x;       y[1] = A.y
+    
+    for t in 2:tmax
+        τ = tmax - t + 1
+        σ_eff = σ #* sqrt(τ / tmax)
+        found = false
+        b_prev = get_depth((x=x[t-1], y=y[t-1]), bathymetry_int)
+        #print(b_prev, "\n")
+        for _ in 1:40
+            x_cand = x[t-1] + randn()*σ_eff + α * (B.x - x[t-1]) / τ
+            y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
+            b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
+            # Constraint: the difference betw two consecutive depth measurements can't be too high
+            if b_cand > 0 && abs(b_cand - b_prev) ≤ 5
+                x[t], y[t] = x_cand, y_cand
+                found = true
+                break
+            end
+        end
+        if !found
+            #@info "No point found at iteration $t, function suspended."
+            #print(x[1], y[1], "\n")
+            return nothing  # esci subito se non trovi acqua
+        end
+    end
+    [(x=x[t], y=y[t]) for t in 1:tmax]
+end
 
 
 #------- HMC 
