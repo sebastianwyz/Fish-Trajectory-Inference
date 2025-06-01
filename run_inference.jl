@@ -49,33 +49,33 @@ include("find_PT3.jl")
 
 #--------- basics
 # Load bathymetry, negative values are treated as land:
-bathymetry_map = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry_maps\\map_channel_mazemod2.jpg"))) * 100 .- 1;
-#bathymetry_map = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_200m_SEBA.tif"))) * 100 .- 1;
+#bathymetry_map = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry_maps\\map_channel_mazemod2.jpg"))) * 100 .- 1;
+bathymetry_map = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_200m.tif"))) * 100 .- 1;
 
 bathymetry_int = extrapolate(interpolate(bathymetry_map, BSpline(Linear())),-1.0);
 
-receiver1 = Receiver((x=100, y=100), k=50.0, dist=30.0)
-receiver2 = Receiver((x=300, y=100), dist=80.0)
-receiver3 = Receiver((x=250, y=150), dist=50.0)
+receiver1 = Receiver((x=10, y=45), k=50.0, dist=30.0)
+receiver2 = Receiver((x=100, y=50), dist=50.0)
+receiver3 = Receiver((x=110, y=200), dist=50.0)
 
 #--------- bridges
 #Building bridges from receiver1 to receiver 2, which is a way to get all (if n_bridges, tmax and sigma are big enough to explore all the channels) the plausible 
 #paths that the fish may have followed:
-tmax = 200       
+tmax = 100       
 
 
 
 
-n_bridges = 400
+n_bridges = 100
 bridges = []
 for _ in 1:n_bridges
-    bridge = simulate_bridge(tmax; A=receiver1, B=receiver2, σ=3.0, α=0.7, bathymetry_int=bathymetry_int)
+    bridge = simulate_bridge_2(tmax; A=receiver1, B=receiver2, σ=3.0, α=0.7, bathymetry_int=bathymetry_int)
     if bridge !== nothing
         push!(bridges, bridge)
     end
 end
 
-for _ in 1:n_bridges
+for _ in 1:100
     bridge = simulate_bridge(tmax; A=receiver1, B=receiver3, σ=3.0, α=0.7, bathymetry_int=bathymetry_int)
     if bridge !== nothing
         push!(bridges, bridge)
@@ -91,7 +91,7 @@ bridges_y = [[p.y for p in bridge] for bridge in bridges]
 
 
 plt = heatmap(bathymetry_map[end:-1:1,:],
-              xlim=(0, 400), ylim=(0, 200),
+              xlim=(0, 400), ylim=(0, 700),
               color=:blues,
               legend=false,
               title="Brownian bridges betw receiver1 e receiver2")
@@ -106,6 +106,7 @@ s_depth = bridges[1] #The trajectory from which we extract the depth data
 s_init = bridges[end]
 #Plotting the accepted bridges:
 xs_d = [p.x for p in s_depth]
+
 ys_d = [p.y for p in s_depth]
 
 xs = [p.x for p in s_init]
@@ -115,7 +116,7 @@ scatter!(plt, [receiver1.x, receiver2.x], [receiver1.y, receiver2.y], color=:red
 
 display(plt)
 plt = heatmap(bathymetry_map[end:-1:1,:],
-              xlim=(0, 400), ylim=(0, 200),
+              xlim=(0, 400), ylim=(0, 700),
               color=:blues,
               legend=false,
               title="Brownian bridges tra receiver1 e receiver2")
@@ -137,7 +138,7 @@ sigma_noise=0.5
 
 for (t, point) in enumerate(bridges[1])
     # Get the depth from the bathymetry
-    d = get_depth((x=point.x, y=point.y), bathymetry_int)
+    d = get_depth((x=point.x, y=point.y), bathymetry_int) 
 
     noisy_d = d + randn() * sigma_noise
 
@@ -194,7 +195,7 @@ end
 function sample_iid!(lp::FishPriorPotential,
                      rng::AbstractRNG,
                      v::AbstractVector)
-    tmax, s0, sigma = 200, (x=100.0,y=100.0), 3.0
+    tmax, s0, sigma = 100, (x=10.0,y=45.0), 3.0
     while true
         traj = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
         isfinite(fish_lp(TransformVariables.inverse(lp.mapping, traj))) || continue
@@ -212,56 +213,6 @@ function sample_iid!(lp::FishPriorPotential,
 end
 
 
-#=
-LogDensityProblems.dimension(lp::FishLogPotential) = length(lp.v_init)
-
-Pigeons.initialization(lp::FishLogPotential, rng::AbstractRNG, ::Int) = lp.v_init
-
-
-#Actually running pigeons:
-import Pkg
-Pkg.status("PigeonsMCMCChainsExt")
-
-@info "Running Pigeons parallel tempering…"
-import Enzyme
-
-#=
-function sample_iid!(lp::FishPriorPotential, rng, v::AbstractVector)
-    # scegli una traiettoria a caso dalle bridges disponibili
-    bridge = rand(rng, bridges)
-    v_sample = TransformVariables.inverse(lp.mapping, bridge)
-    copyto!(v, v_sample)
-    return v
-end
-=#
-#=
-function sample_iid!(lp::FishPriorPotential, rng, v::AbstractVector)
-    # Genera una traiettoria random walk pura
-    tmax = 200 # imposta il valore corretto
-    s0 = (x = 100.0, y = 100.0) # punto di partenza
-    sigma = 3.0 # o il valore che usi nel prior
-    traj = simulateRW_s_init(tmax; s0=s0, sigma=sigma)
-    v_sample = TransformVariables.inverse(lp.mapping, traj)
-    copyto!(v, v_sample)
-    return v
-end
-=#
-function Pigeons.sample_iid!(lp::FishPriorPotential, replica, shared)
-    rng   = replica.rng          # generatore casuale
-    state = replica.state        # vettore in-place da riempire
-
-    # -- genera un campione indipendente dal prior --------------------
-    tmax  = 200
-    s0    = (x = 100.0, y = 100.0)
-    sigma = 3.0
-    traj  = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
-
-    v_sample = TransformVariables.inverse(lp.mapping, traj)
-    copyto!(state, v_sample)     # scrive sullo stato della replica
-    return state                 # (facoltativo ma consigliato)
-end
-=#
-
 fish_prior_lp = FishPriorPotential(mapping, v_init)
 fish_lp = FishLogPotential(Ydepth, Yaccustic, bathymetry_int, mapping, v_init)
 
@@ -269,13 +220,14 @@ pt = pigeons(
     target            = fish_lp,               # log posterior to smaple from
     reference         = fish_prior_lp,         # reference distribution (that coincides with the distribution at beta=0)
     seed              = 1234,                  
-    n_rounds          = 4,                     # up to 2^nround–1 scans
-    n_chains          = 100,                    
-    checkpoint        = false,                
-    multithreaded     = true,                  
+    n_rounds          = 11,                     # up to 2^nround–1 scans
+    n_chains          = 10,                    
+    checkpoint        = true,                
+    multithreaded     = true,    
+
     #=explorer          = AutoMALA(
-                           step_size            = 6.0,           # passo iniziale MALA
-                           base_n_refresh       = 7,     #13        # passi base per esplorazione
+                           step_size            = 10.0,           # passo iniziale MALA
+                           base_n_refresh       = 10,     #13        # passi base per esplorazione
                            exponent_n_refresh   = 0.5,           # scala con √dim
                            default_autodiff_backend = :ForwardDiff        # backend autodiff
                        ),=#
@@ -293,7 +245,7 @@ xs_pigeons = [p.x for p in cold_last_S] #extracting trajectories
 ys_pigeons = [p.y for p in cold_last_S]
 
 plt = heatmap(bathymetry_map[end:-1:1, :],
-              xlim=(0, 400), ylim=(0, 200),
+              xlim=(0, 200), ylim=(0, 200),
               color=:blues,
               title="Pigeons results")
 plot!(plt, xs_pigeons, ys_pigeons, lw=3, color=:orange, label="Pigeons PT")
@@ -304,7 +256,6 @@ plot!(plt, make_circle(receiver2.x, receiver2.y, receiver2.dist), color=:red, la
 
 scatter!(plt, [receiver1.x, receiver2.x], [receiver1.y, receiver2.y], color=:red, label="Receivers")
 display(plt)
-
 
 
 logposteriors = [logdensity(fish_lp, pt_samples.value[i, 1:2*tmax]) for i in 1:size(pt_samples.value, 1)]
@@ -319,14 +270,25 @@ n_samples = size(pt_samples.value, 1)
 for i in 1:n_samples
     v = pt_samples.value[i, 1:2*n_points]
     S = TransformVariables.transform(mapping, v)
+    xs_ss = [p.x for p in S]
+    ys_ss = [p.y for p in S]
+    plot!(xs_ss, ys_ss, alpha=0.2, color=:orange, label=false)
+end
+heatmap!(bathymetry_map[end:-1:1, :], xlim=(0, 200), ylim=(0, 200), color=:blues, alpha=0.3, legend=false)
+
+#=
+
+n_iter, n_param, n_chain = size(pt_samples)
+idx_hot = n_chain  # la catena più calda
+
+for i in 1:n_iter
+    v = pt_samples[i, 1:2*n_points, idx_hot]
+    S = TransformVariables.transform(mapping, v)
     xs = [p.x for p in S]
     ys = [p.y for p in S]
-    plot!(xs, ys, alpha=0.2, color=:orange, label=false)
+    plot!(xs, ys, alpha=0.2, color=:red, label=false)  # colore diverso per distinguerla
 end
-heatmap!(bathymetry_map[end:-1:1, :], xlim=(0, 400), ylim=(0, 200), color=:blues, alpha=0.3, legend=false)
-
-
-
+=#
 # Calcola i vettori nello spazio dei parametri
 v_cold = pt_samples.value[end, 1:2*tmax]
 v_init = TransformVariables.inverse(mapping, s_init)
@@ -361,6 +323,9 @@ profonditaP = [y[2] for y in YdepthPIGEONS]
 plt = plot(tempi, profondita, xlabel="Tempo", ylabel="Profondità", label="Ydepth2", legend=:topright)
 plot!(plt, tempiP, profonditaP, label="Ydepth PIGEONS")
 display(plt)
+
+
+
 
 #=
 samples = infer_trajectories(

@@ -37,12 +37,19 @@ direction(c1, c2) = atan(c1.x - c2.x,  c1.y - c2.y)
 
 # ----------- Bayesian problem
 # p(X_t | X_{t_1}, X_{t-2}), movement model
+#=
 function log_p_moveRW(c1, c2)
     σ = 1.0 #1
     logpdf(Normal(c2.x, σ), c1.x) +
         logpdf(Normal(c2.y, σ), c1.y)  #uniform
 end
+=#
 
+function log_p_moveRW(c1, c2)
+    σ = 0.3  # controlla quanto "stretta" è la preferenza per la distanza 3
+    d = dist(c1, c2)
+    logpdf(Normal(3.0, σ), d)
+end
 
 # p(Y_t | X_t), observation model for accustic receivers
 abstract type Sensor
@@ -62,7 +69,7 @@ function log_prob_signal(signal, s::NamedTuple, device::Receiver)
 
     d0 = device.dist
     #k = device.k
-    k = 2
+    k = 5
     prob_detect = 1 - 1/(1 + exp(-(d - d0)/k))
 
     if signal == :detect
@@ -81,7 +88,7 @@ end
 
 function get_depth(s, bathymetry)
     dy, dx = size(bathymetry)
-    bathymetry(dy - s.y, s.x)
+    bathymetry(dy - s.y, s.x) / 100
 end
 
 function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, map_int)
@@ -90,7 +97,7 @@ function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, map_int)
     max_depth = get_depth(s, map_int)
 
     # not a very realsitc choise
-    dist = Normal(max_depth, 1)   # 2
+    dist = Normal(max_depth, 2)   # 2
     logpdf(dist, signal)
 
     # -- truncated distributions to avoid land
@@ -267,7 +274,7 @@ function simulate_bridge(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
             y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
             b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
             # Constraint: the difference betw two consecutive depth measurements can't be too high
-            if b_cand > 0 && abs(b_cand - b_prev) ≤ 5
+            if b_cand > 0 && abs(b_cand - b_prev) ≤ 50
                 x[t], y[t] = x_cand, y_cand
                 found = true
                 break
@@ -284,36 +291,53 @@ end
 
 
 function simulate_bridge_2(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
-    x = zeros(tmax);  y = zeros(tmax)
-    x[1] = A.x;       y[1] = A.y
-    
-    for t in 2:tmax
-        τ = tmax - t + 1
-        σ_eff = σ #* sqrt(τ / tmax)
-        found = false
-        b_prev = get_depth((x=x[t-1], y=y[t-1]), bathymetry_int)
-        #print(b_prev, "\n")
-        for _ in 1:40
-            x_cand = x[t-1] + randn()*σ_eff + α * (B.x - x[t-1]) / τ
-            y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
+    x = zeros(tmax)
+    y = zeros(tmax)
+    max_step = 4.0  # Limite massimo del passo tra due punti
+    x[1] = A.x
+    y[1] = A.y
+    x[end] = B.x
+    y[end] = B.y
+
+    for t in 2:(tmax-1)
+        # Interpolazione lineare tra A e B
+        frac = (t-1)/(tmax-1)
+        x_target = (1-frac)*A.x + frac*B.x
+        y_target = (1-frac)*A.y + frac*B.y
+
+        # Passo random attorno al target
+        dx = randn()*σ
+        dy = randn()*σ
+
+        # Proponi nuovo punto
+        x_cand = x_target + dx
+        y_cand = y_target + dy
+
+        # Limita la lunghezza del passo rispetto al punto precedente
+        step_len = sqrt((x_cand - x[t-1])^2 + (y_cand - y[t-1])^2)
+        if step_len > max_step
+            scale = max_step / step_len
+            x_cand = x[t-1] + (x_cand - x[t-1]) * scale
+            y_cand = y[t-1] + (y_cand - y[t-1]) * scale
+        end
+
+        # Se vuoi vincolare all'acqua:
+        if bathymetry_int !== nothing
             b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
-            # Constraint: the difference betw two consecutive depth measurements can't be too high
-            if b_cand > 0 && abs(b_cand - b_prev) ≤ 5
-                x[t], y[t] = x_cand, y_cand
-                found = true
-                break
+            if b_cand <= 0
+                # Se non è acqua, riprova (o copia il punto precedente)
+                x_cand, y_cand = x[t-1], y[t-1]
             end
         end
-        if !found
-            #@info "No point found at iteration $t, function suspended."
-            #print(x[1], y[1], "\n")
-            return nothing  # esci subito se non trovi acqua
-        end
+
+        x[t] = x_cand
+        y[t] = y_cand
+        print("x: ",x[t]-x[t-1],"  y:",  y[t]-y[t-1], "d ", sqrt((x[t]-x[t-1])^2 + (y[t]-y[t-1])^2 ), "\n")
     end
+
+    # Costruisci la traiettoria
     [(x=x[t], y=y[t]) for t in 1:tmax]
 end
-
-
 #------- HMC 
 function infer_trajectories(Ydepth, Yaccustic, bathymetry_interpolated;
                             s_init, n_samples=100, tmax=100)
