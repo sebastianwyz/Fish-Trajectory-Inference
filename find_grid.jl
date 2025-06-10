@@ -423,7 +423,7 @@ function Pigeons.sample_iid!(ref::FishReferencePotential, replica, shared)
 
     while true
         S = rand(rng, bridges)
-        #tmax, s0, sigma = 80, (x=100.0, y=100.0), 3
+        #tmax, s0, sigma = 80, (x=10.0, y=45.0), 3
         #S = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
 
         if S === nothing
@@ -442,10 +442,10 @@ end
 
 #initialization implementation
 function Pigeons.initialization(pot::FishLogPotential, rng::AbstractRNG, dim::Int)
-    #pot.v_init
+    v = TransformVariables.inverse(pot.mapping, bridges[end])
     # Sample one of the prior bridges
-    S = rand(rng, bridges)  # bridges is your vector of NamedTuple[]
-    TransformVariables.inverse(mapping, S)  # returns a flat vector of length 160
+    #S = rand(rng, bridges)  # bridges is your vector of NamedTuple[]
+    #return TransformVariables.inverse(pot.mapping, S)  # returns a flat vector of length 160
 end
 
 
