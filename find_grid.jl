@@ -41,7 +41,7 @@ direction(c1, c2) = atan(c1.x - c2.x,  c1.y - c2.y)
 # p(X_t | X_{t_1}, X_{t-2}), movement model
 
 function log_p_moveRW(c1, c2)
-    σ = 3 #1
+    σ = 3.0 #1
     logpdf(Normal(c2.x, σ), c1.x) +
         logpdf(Normal(c2.y, σ), c1.y)  #uniform
 end
@@ -70,8 +70,8 @@ function log_prob_signal(signal, s::NamedTuple, device::Receiver)
     d = dist((x=device.x, y=device.y), s)
 
     d0 = device.dist
-    #k = device.k
-    k = 5
+    k = device.k
+    #k = 5
     prob_detect = 1 - 1/(1 + exp(-(d - d0)/k))
 
     if signal == :detect
@@ -345,6 +345,78 @@ function simulate_bridge_2(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
     # Costruisci la traiettoria
     [(x=x[t], y=y[t]) for t in 1:tmax]
 end
+
+function simulate_unbiased_path(
+    tmax::Int;
+    rec1::Receiver,              
+    rec2::Receiver,              
+    σ_step::Float64 = 1.0,
+    bathymetry_int::Any,
+    max_retries::Int = 100,
+    coarse_steps::Int = 50,
+    min_endpoint_prob::Float64 = 0.5,
+    noise_σ::Float64 = 0.5
+)
+    for _ in 1:max_retries
+        # === Step 1: Generate main path with only positive x steps and over water ===
+        x = Float64[]
+        y = Float64[]
+        push!(x, rec1.x)
+        push!(y, rec1.y)
+
+        valid = true
+        for _ in 2:coarse_steps  # arbitrarily chosen max main path length
+            success = false
+            for attempt in 1:20
+                dx = abs(randn() * σ_step)  # x always increasing
+                dy = randn() * σ_step
+
+                x_new = x[end] + dx
+                y_new = y[end] + dy
+
+                b = get_depth((x = x_new, y = y_new), bathymetry_int)
+                if b > 0
+                    push!(x, x_new)
+                    push!(y, y_new)
+                    success = true
+                    break
+                end
+            end
+            if !success
+                valid = false
+                break
+            end
+        end
+
+        if !valid
+            continue  # Retry
+        end
+
+        # === Step 2: Interpolate to tmax steps ===
+        n_main = length(x)
+        ts_main = range(1, n_main, length=n_main)
+        ts_interp = range(1, n_main, length=tmax)
+
+        x_interp = LinearInterpolation(ts_main, x, extrapolation_bc=Line())
+        y_interp = LinearInterpolation(ts_main, y, extrapolation_bc=Line())
+        interp_path = [(x = x_interp(t), y = y_interp(t)) for t in ts_interp]
+
+        # === Step 3: Check detectability of final point ===
+        final_point = interp_path[end]
+        logp = log_prob_signal(:detect, final_point, rec2)
+        prob = exp(logp)
+        if prob < min_endpoint_prob
+            continue
+        end
+
+        # === Step 4: Add noise to the interpolated path ===
+        noisy_path = [(x = p.x + randn() * noise_σ, y = p.y + randn() * noise_σ) for p in interp_path]
+        return noisy_path
+    end
+
+    return nothing  # failed after all retries
+end
+
 #------- HMC 
 function infer_trajectories(Ydepth, Yaccustic, bathymetry_interpolated;
                             s_init, n_samples=100, tmax=100)
@@ -420,9 +492,9 @@ LogDensityProblems.dimension(pot::FishLogPotential) = length(pot.v_init)
 #sample_iid! implementation
 function Pigeons.sample_iid!(ref::FishReferencePotential, replica, shared)
     rng = replica.rng
-
+    selected_bridges=bridges[1:Int(floor(length(bridges)/2))]
     while true
-        S = rand(rng, bridges)
+        S = rand(rng, selected_bridges)
         #tmax, s0, sigma = 80, (x=10.0, y=45.0), 3
         #S = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
 
