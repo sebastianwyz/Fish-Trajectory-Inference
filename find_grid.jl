@@ -367,7 +367,9 @@ function simulate_unbiased_path(
         valid = true
         for _ in 2:coarse_steps  # arbitrarily chosen max main path length
             success = false
-            for attempt in 1:20
+            count=0
+            for attempt in 1:30
+                inner_count=0
                 dx = abs(randn() * σ_step)  # x always increasing
                 dy = randn() * σ_step
 
@@ -375,7 +377,8 @@ function simulate_unbiased_path(
                 y_new = y[end] + dy
 
                 b = get_depth((x = x_new, y = y_new), bathymetry_int)
-                if b > 0
+                c = get_depth((x = x[end], y = y[end]), bathymetry_int)
+                if (b > 0) #&& (abs(b-c)<=20)
                     push!(x, x_new)
                     push!(y, y_new)
                     success = true
