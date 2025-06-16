@@ -455,12 +455,13 @@ end
 
 #------------- defining the target and reference distribution for pigeons
 #Target:
-struct FishLogPotential{YD,YA,BI,M}
+struct FishLogPotential{YD,YA,BI,M,B}
     Ydepth   ::Vector{YD}
     Yacc     ::Vector{YA}
     bathy_int::BI
     mapping  ::M
     v_init   ::Vector{Float64}
+    bridges  ::B
 end
 
 function (lp::FishLogPotential)(v::AbstractVector)
@@ -470,10 +471,11 @@ end
 
 
 #Reference:
-struct FishReferencePotential{BI, M}
+struct FishReferencePotential{BI,M,B}
     bathy_int::BI
-    mapping::M
-    v_init::Vector{Float64}
+    mapping  ::M
+    v_init   ::Vector{Float64}
+    bridges  ::B
 end
 
 function (ref::FishReferencePotential)(v::AbstractVector)
@@ -495,19 +497,13 @@ LogDensityProblems.dimension(pot::FishLogPotential) = length(pot.v_init)
 #sample_iid! implementation
 function Pigeons.sample_iid!(ref::FishReferencePotential, replica, shared)
     rng = replica.rng
-    selected_bridges=bridges[1:Int(floor(length(bridges)/2))]
+    selected_bridges = ref.bridges[1:Int(floor(length(ref.bridges)/2))]
+
     while true
         S = rand(rng, selected_bridges)
-        #tmax, s0, sigma = 80, (x=10.0, y=45.0), 3
-        #S = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
-
-        if S === nothing
-            continue
-        end
 
         v = TransformVariables.inverse(ref.mapping, S)
 
-        # Optional: check if it's a valid point
         if all(isfinite, v) && isfinite(ref(v))
             replica.state .= v
             return
@@ -515,13 +511,13 @@ function Pigeons.sample_iid!(ref::FishReferencePotential, replica, shared)
     end
 end
 
+
 #initialization implementation
 function Pigeons.initialization(pot::FishLogPotential, rng::AbstractRNG, dim::Int)
-    v = TransformVariables.inverse(pot.mapping, bridges[end])
-    # Sample one of the prior bridges
-    #S = rand(rng, bridges)  # bridges is your vector of NamedTuple[]
-    #return TransformVariables.inverse(pot.mapping, S)  # returns a flat vector of length 160
+    v = TransformVariables.inverse(pot.mapping, pot.bridges[end])
+    return v
 end
+
 
 
 # ----------- functions for plotting
