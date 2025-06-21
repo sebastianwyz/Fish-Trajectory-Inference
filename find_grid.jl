@@ -29,7 +29,8 @@ import TransformVariables: AbstractTransform
 using MCMCChains
 using StatsPlots
 using DynamicPPL
-
+using ADTypes
+using Enzyme
 
 
 # -----------unction for coordinates
