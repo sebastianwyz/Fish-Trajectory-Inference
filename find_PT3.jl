@@ -9,25 +9,32 @@
 using Distributions
 using Interpolations
 using Plots
+using Images
 using Random
-using DynamicHMC
 using TransformVariables
-using TransformedLogDensities: TransformedLogDensity
-using LogDensityProblemsAD: ADgradient
-using Optim             
-import ForwardDiff
+using Printf
+# using TransformedLogDensities
+# using DifferentiationInterface
 
-using LogDensityProblems
+# using Optim             
+# using ForwardDiff
+
 using LogDensityProblemsAD
 import LogDensityProblems: logdensity, dimension, capabilities
 using Pigeons
-using Pigeons: HMC
-using Pigeons: record_default
 import Pigeons: initialization, sample_iid!
 import TransformVariables: AbstractTransform
 using MCMCChains
-using StatsPlots
+# using StatsPlots
 
+# AutoEnzyme
+using ADTypes
+using Enzyme
+using LogDensityProblems
+
+# Displaying Diagnosis
+#= using CSV
+using DataFrames  =#
 
 
 # -----------unction for coordinates
@@ -68,8 +75,8 @@ function log_prob_signal(signal, s::NamedTuple, device::Receiver)
     d = dist((x=device.x, y=device.y), s)
 
     d0 = device.dist
-    #k = device.k
-    k = 5
+    k = device.k
+    # k = 5
     prob_detect = 1 - 1/(1 + exp(-(d - d0)/k))
 
     if signal == :detect
@@ -97,7 +104,7 @@ function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, map_int)
     max_depth = get_depth(s, map_int)
 
     # not a very realsitc choise
-    dist = Normal(max_depth, 2)   # 2
+    dist = Normal(max_depth, 15)   # 2
     logpdf(dist, signal)
 
     # -- truncated distributions to avoid land
@@ -332,12 +339,88 @@ function simulate_bridge_2(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
 
         x[t] = x_cand
         y[t] = y_cand
-        print("x: ",x[t]-x[t-1],"  y:",  y[t]-y[t-1], "d ", sqrt((x[t]-x[t-1])^2 + (y[t]-y[t-1])^2 ), "\n")
+        # print("x: ",x[t]-x[t-1],"  y:",  y[t]-y[t-1], "d ", sqrt((x[t]-x[t-1])^2 + (y[t]-y[t-1])^2 ), "\n")
     end
 
     # Costruisci la traiettoria
     [(x=x[t], y=y[t]) for t in 1:tmax]
 end
+
+function simulate_unbiased_path(
+    tmax::Int;
+    rec1::Receiver,              
+    rec2::Receiver,              
+    σ_step::Float64 = 1.0,
+    bathymetry_int::Any,
+    max_retries::Int = 100,
+    coarse_steps::Int = 50,
+    min_endpoint_prob::Float64 = 0.5,
+    noise_σ::Float64 = 0.5
+)
+    for _ in 1:max_retries
+        # === Step 1: Generate main path with only positive x steps and over water ===
+        x = Float64[]
+        y = Float64[]
+        push!(x, rec1.x)
+        push!(y, rec1.y)
+
+        valid = true
+        for _ in 2:coarse_steps  # arbitrarily chosen max main path length
+            success = false
+            count=0
+            for attempt in 1:30
+                inner_count=0
+                dx = abs(randn() * σ_step)  # x always increasing
+                dy = randn() * σ_step
+
+                x_new = x[end] + dx
+                y_new = y[end] + dy
+
+                b = get_depth((x = x_new, y = y_new), bathymetry_int)
+                c = get_depth((x = x[end], y = y[end]), bathymetry_int)
+                if (b > 0) #&& (abs(b-c)<=20)
+                    push!(x, x_new)
+                    push!(y, y_new)
+                    success = true
+                    break
+                end
+            end
+            if !success
+                valid = false
+                break
+            end
+        end
+
+        if !valid
+            continue  # Retry
+        end
+
+        # === Step 2: Interpolate to tmax steps ===
+        n_main = length(x)
+        ts_main = range(1, n_main, length=n_main)
+        ts_interp = range(1, n_main, length=tmax)
+
+        x_interp = LinearInterpolation(ts_main, x, extrapolation_bc=Line())
+        y_interp = LinearInterpolation(ts_main, y, extrapolation_bc=Line())
+        interp_path = [(x = x_interp(t), y = y_interp(t)) for t in ts_interp]
+
+        # === Step 3: Check detectability of final point ===
+        final_point = interp_path[end]
+        logp = log_prob_signal(:detect, final_point, rec2)
+        prob = exp(logp)
+        if prob < min_endpoint_prob
+            continue
+        end
+
+        # === Step 4: Add noise to the interpolated path ===
+        noisy_path = [(x = p.x + randn() * noise_σ, y = p.y + randn() * noise_σ) for p in interp_path]
+        return noisy_path
+    end
+
+    return nothing  # failed after all retries
+end
+
+
 #------- HMC 
 function infer_trajectories(Ydepth, Yaccustic, bathymetry_interpolated;
                             s_init, n_samples=100, tmax=100)
@@ -450,154 +533,41 @@ function plot_depth(Y, tmax)
             ylab=:depth, xlab="time", legend=false)
 end
 
-
-
-
-#---------------------------------------------------------------
-#=# Soft barriers to avoid land / bounding box exits
-σ(x) = 1 / (1 + exp(-x))         
-function log_p_environment(s::NamedTuple, bathymetry_int;
-                           xdim=(1.0,400.0), ydim=(1.0,200.0),
-                           α=2.0, β=0.5)  # valori aumentati #era 1 e 0.25
-
-    depth = get_depth(s, bathymetry_int)        
-    p_water = σ(α * depth)                      # ≈0 su terra, ≈1 in acqua
-    lp = log(p_water + eps())                  
-
-    # --- penalità per uscire dal bounding box (4 log‑σ simmetrici)
-    lp += log(σ(β * (s.x - xdim[1])) + eps())
-    lp += log(σ(β * (xdim[2] - s.x)) + eps())
-    lp += log(σ(β * (s.y - ydim[1])) + eps())
-    lp += log(σ(β * (ydim[2] - s.y)) + eps())
-
-    return lp          
-end=#
-
-
-#=function build_Yaccustic_conditional(bridge::Vector{P}, receivers_list::Vector{R}) where {P, R}
-    # Yaccustic conterrà tuple di (Timestamp, Segnale, Oggetto Ricevitore)
-    Yaccustic = Tuple{Int, Symbol, R}[]
-
-    for (t, point) in enumerate(bridge) # 't' sarà l'indice (1, 2, 3...), 'point' l'elemento di bridge
-        
-        # Lista temporanea per conservare gli stati di tutti i ricevitori per l'istante 't'
-        # Ogni elemento sarà una tupla: (segnale_calcolato, ricevitore_originale)
-        statuses_this_instant = Tuple{Symbol, R}[]
-        at_least_one_detection_this_instant = false
-
-        # 1. Calcola lo stato per ogni ricevitore in questo istante 't'
-        for receiver in receivers_list
-            # Calcolo della distanza euclidea tra il pesce (point) e il ricevitore
-            # Assicurati che 'point' abbia .x, .y e 'receiver' abbia .x, .y, .dist
-            distance_squared = (point.x - receiver.x)^2 + (point.y - receiver.y)^2
-            distance = sqrt(distance_squared)
-            
-            current_signal = distance <= receiver.dist ? :detect : :nondetect
-            
-            push!(statuses_this_instant, (current_signal, receiver))
-            
-            if current_signal == :detect
-                at_least_one_detection_this_instant = true
-            end
-        end
-        
-        # 2. Se almeno un ricevitore ha rilevato il pesce, aggiungi tutti gli stati a Yaccustic
-        if at_least_one_detection_this_instant
-            for (signal_to_add, receiver_object) in statuses_this_instant
-                push!(Yaccustic, (t, signal_to_add, receiver_object))
-            end
-        end
-        # Se 'at_least_one_detection_this_instant' è false, non facciamo nulla per questo istante 't',
-        # e Yaccustic non riceverà entry per questo 't'.
-    end
-    
-    return Yaccustic
+#########################  FishLogPotential  #########################
+# — vecchia firma: ritorna un nuovo vettore —
+function initialization(lp::FishLogPotential,
+                        rng::AbstractRNG,
+                        replica_index::Int)
+    return copy(lp.v_init)        # oppure rand iniziale, ma dentro il supporto
 end
 
-function build_Yaccustic_conditional_with_confirmed_formats(bridge::Vector{P}, receivers_list::Vector{R}) where {P, R}
-    Yaccustic = Tuple{Int, Symbol, R}[] # R è il tipo del tuo oggetto Receiver
+# — nuova firma (≥ v0.4): riempie in-place un vettore esistente —
+function initialization(lp::FishLogPotential,
+                        rng::AbstractRNG,
+                        v::AbstractVector)
+    copyto!(v, lp.v_init)
+    return v
+end
 
-    for (t, point) in enumerate(bridge) # point è (x=..., y=...)
-        statuses_this_instant = Tuple{Symbol, R}[]
-        at_least_one_detection_this_instant = false
 
-        for receiver in receivers_list
-            distance_squared = (point.x - receiver.x)^2 + (point.y - receiver.y)^2
-
-            distance = sqrt(distance_squared)
-            println("distance: ", distance)
-            
-            current_signal = distance <= receiver.dist ? :detect : :nondetect # Usa receiver.dist
-            
-            push!(statuses_this_instant, (current_signal, receiver))
-            
-            if current_signal == :detect
-                at_least_one_detection_this_instant = true
-            end
-        end
-        
-        if at_least_one_detection_this_instant
-            for (signal_to_add, receiver_object) in statuses_this_instant
-                push!(Yaccustic, (t, signal_to_add, receiver_object))
-            end
-        end
+#########################  FishPriorPotential  #########################
+# ---------- vecchia firma ----------
+function sample_iid!(lp::FishPriorPotential,
+                     rng::AbstractRNG,
+                     v::AbstractVector)
+    tmax, s0, sigma = 100, (x=10.0,y=45.0), 3.0
+    while true
+        traj = simulateRW_s_init(tmax; s0=s0, sigma=sigma, rng=rng)
+        isfinite(fish_lp(TransformVariables.inverse(lp.mapping, traj))) || continue
+        copyto!(v, TransformVariables.inverse(lp.mapping, traj))
+        return v
     end
-    
-    return Yaccustic
-end=#
+end
 
-
-
-#=
-function simulate_bridge(tmax; A, B, σ = 3.0, α = 0.7, bathymetry_int, Ydepth)
-    x = zeros(tmax);  y = zeros(tmax)
-    x[1] = A.x;       y[1] = A.y
-    for t in 2:tmax
-        τ = tmax - t + 1
-        σ_eff = σ #* sqrt(τ / tmax)
-        # Estrai profondità osservata al tempo t
-        d_obs = Ydepth[t][2]
-        print("d obs", d_obs , "\n")
-        candidates = Tuple{Float64, Float64}[]
-        diffs = Float64[]
-        # Genera 10 candidati
-        for _ in 1:20
-            x_cand = x[t-1] + randn()*σ_eff + α * (B.x - x[t-1]) / τ
-            y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
-            b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
-            push!(candidates, (x_cand, y_cand))
-            push!(diffs, abs(b_cand - d_obs))
-            print("depth cand", b_cand , "\n")
-        end
-        # Scegli il candidato con differenza minima
-        idx = argmin(diffs)
-        x[t], y[t] = candidates[idx]
-    end
-    [(x=x[t], y=y[t]) for t in 1:tmax]
-end=#
-
-#=function simulate_bridge(tmax; A, B, σ = 3.0, α = 0.7, bathymetry_int)
-    x = zeros(tmax);  y = zeros(tmax)
-    x[1] = A.x;       y[1] = A.y
-    for t in 2:tmax
-        τ = tmax - t + 1
-        σ_eff = σ #* sqrt(τ / tmax)
-        found = false
-        for _ in 1:40
-            x_cand = x[t-1] + randn()*σ_eff + α * (B.x - x[t-1]) / τ
-            y_cand = y[t-1] + randn()*σ_eff + α * (B.y - y[t-1]) / τ
-            b_cand = get_depth((x=x_cand, y=y_cand), bathymetry_int)
-            if b_cand > 0  # acqua
-                x[t], y[t] = x_cand, y_cand
-                found = true
-                #print("depth cand", b_cand , "\n")
-                break
-            end
-        end
-        if !found
-            @info "Nessun punto in acqua trovato al passo $t, funzione sospesa."
-            return nothing  # esci subito se non trovi acqua
-        end
-    end
-    [(x=x[t], y=y[t]) for t in 1:tmax]
-end   =#
+# ---------- nuova firma (≥ v0.4) ----------
+function sample_iid!(lp::FishPriorPotential,
+                     replica,
+                     shared)
+    sample_iid!(lp, replica.rng, replica.state)
+    return replica.state
+end
