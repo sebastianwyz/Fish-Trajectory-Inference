@@ -1,5 +1,8 @@
+
+
+
 import Pkg
-using XLSX            # lettura xlsx
+using XLSX            # lettura xls
 using DataFrames      # gestione tabelle
 using Dates           # DateTime
 using Missings        # gestione dei NA
@@ -10,12 +13,13 @@ using CSV
 
 Pkg.activate(".")
 Pkg.instantiate()
+#Pkg.add("GeoArrays")
 #import GeoArrays
 using GeoArrays
 using Images: load, Gray, channelview
 using Plots
 
-include("find_PT3.jl")
+include("find_PT3_REALDATA.jl")
 
 
 
@@ -24,13 +28,15 @@ spatial_resolution = 200                         # spatial resolution
 
 
 # -- bathymetry
+#bathy_orig = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
 bathy_orig = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
 
+#bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
 bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
 #bathy = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_200m.tif"))) * 100 .- 1;
 #print(bathy)
-#bathy = bathy[340:360, 430:450, :] # zoom in a bit
-bathy = bathy[300:380, 410:470, :] # zoom in a bit
+bathy = bathy[340:360, 430:450, :] # zoom in a bit
+#bathy = bathy[300:380, 410:470, :] # zoom in a bit
 
 bathymetry_int = extrapolate(interpolate(bathy, BSpline(Linear())),-1.0);
 
@@ -52,12 +58,15 @@ println(typeof(bathymetry_int))
 
 # Supponiamo che s sia un NamedTuple o struct con campi .x e .y
 s = (x=710799.3, y=6.267726e6)
-
+s = (x=709757.121649658, y=6.26772603565296e6)
 #s = (x = 10, y = 10)
 # bathymetry_int: oggetto di interpolazione
 # x_origin, y_origin, dx, dy: già calcolati come sopra
 
 depth = get_depth_p(s, bathymetry_int, x_origin, y_origin, dx, dy)
+
+depth = get_depth_p((x=709757.111649658,y=6.26772603565296e6), bathymetry_int, x_origin, y_origin, dx, dy)
+
 println("Profondità interpolata: ", depth)
 
 
@@ -75,6 +84,7 @@ idx_full = GeoArrays.indices(bathy_orig, (x_test, y_test))
 row_full, col_full = Tuple(idx_full)  # Converte il CartesianIndex in tupla
 row = row_full - row_start + 1
 col = col_full - col_start + 1
+bathymetry_int(row, col)
 println("Profondità interpolata: ", bathymetry_int(row, col))
 
 #depth = get_depth((x=710799.5, y=6.267726e6), bathymetry_int, bathy_orig, 340, 430)
@@ -111,7 +121,7 @@ depth_signals = depth_obs_df.depth
 #start_idx = 10400
 #end_idx = 10500
 start_idx = 1
-end_idx = 2500
+end_idx = 100
 # Filtra il DataFrame delle profondità
 depth_obs_df = depth_obs_df[start_idx:end_idx, :]
 depth_signals = depth_obs_df.depth
@@ -371,28 +381,6 @@ mapping = TransformVariables.as(Array,
 v_init = TransformVariables.inverse(mapping, s_init)
 print(v_init)
 
-dimension(lp::FishLogPotential) = length(lp.v_init)
-logdensity(lp::FishLogPotential, v::AbstractVector) = lp(v)
-capabilities(::FishLogPotential) = LogDensityProblems.LogDensityOrder{0}()
-
-dimension(lp::FishPriorPotential) = length(lp.v_init)
-logdensity(lp::FishPriorPotential, v::AbstractVector) = lp(v)
-capabilities(::FishPriorPotential) = LogDensityProblems.LogDensityOrder{0}()
-
-
-
-function initialization(lp::FishLogPotential,
-                        rng::AbstractRNG,
-                        replica_index::Int)
-    return copy(lp.v_init)        # oppure rand iniziale, ma dentro il supporto
-end
-
-function initialization(lp::FishLogPotential,
-                        rng::AbstractRNG,
-                        v::AbstractVector)
-    copyto!(v, lp.v_init)
-    return v
-end
 
 
 s0, σ =  (x = 709_757.1116, y = 6.2677260356e6), 2.0
@@ -400,39 +388,11 @@ s0, σ =  (x = 709_757.1116, y = 6.2677260356e6), 2.0
 traj = simulateRW_free(tmax; s0 = s0, sigma = 2.0, rng = Random.default_rng())
 
 
-function sample_iid!(lp::FishPriorPotential,
-                     rng::AbstractRNG,
-                     v::AbstractVector;
-                     tries = 300)
 
-    s0, σ =  (x = 709_757.1116, y = 6.2677260356e6), 2.0
-
-    for _ in 1:tries
-        traj = simulateRW_free(tmax; s0 = s0, sigma = 2.0, rng = rng)
-
-        #isfinite(lp.target(TransformVariables.inverse(lp.mapping, traj))) || continue
-
-
-        #all_water(traj) || continue              # controllo O(tmax)
-        copyto!(v, TransformVariables.inverse(lp.mapping, traj))
-        return v
-    end
-
-    # fallback deterministico (mai su terra)
-    traj = fill(s0, tmax + 1)
-    @warn "sample_iid! fallback after $tries tentativi → path piatto"
-    copyto!(v, TransformVariables.inverse(lp.mapping, traj))
-    return v
-end
-
-function sample_iid!(lp::FishPriorPotential, replica, shared)
-    sample_iid!(lp, replica.rng, replica.state)   # riusa la funzione sopra
-    return replica.state
-end
 
 
 fish_prior_lp = FishPriorPotential(mapping, v_init)
-
+#=
 fish_lp = FishLogPotential(
     Ydepth,
     Yaccustic,
@@ -444,83 +404,35 @@ fish_lp = FishLogPotential(
     mapping,
     v_init
 )
+=#
 using Pigeons
 using Pigeons: round_trip
-#println(Pigeons.VERSION)
-#using InfernenceReport
-
-#=
-@time fish_lp(v_init)
-@time fish_prior_lp(v_init)
-println(any(ismissing, depth_signals))
-println(any(ismissing, acoustic_array))
-println(extrema(depth_signals))
-println(extrema(acoustic_array))
-# ...existing code...
-
-println("DEBUG: typeof(s_init) = ", typeof(s_init))
-println("DEBUG: typeof(Ydepth) = ", typeof(Ydepth))
-println("DEBUG: typeof(Yaccustic) = ", typeof(Yaccustic))
-
-println("DEBUG: tmax = ", tmax)
-println("DEBUG: mapping type = ", typeof(mapping))
-println("DEBUG: v_init type = ", typeof(v_init), ", length = ", length(v_init))
-println("DEBUG: s_init type = ", typeof(s_init), ", length = ", length(s_init))
-
-println("DEBUG: Ydepth type = ", typeof(Ydepth), ", length = ", length(Ydepth))
-for (i, y) in enumerate(Ydepth)
-    println("  Ydepth[$i] = ", y, " | type: ", typeof(y))
-end
-
-println("DEBUG: Yaccustic type = ", typeof(Yaccustic), ", length = ", length(Yaccustic))
-for (i, y) in enumerate(Yaccustic)
-    println("  Yaccustic[$i] = ", y, " | type: ", typeof(y))
-end
-
-println("DEBUG: receivers type = ", typeof(receivers), ", length = ", length(receivers))
-for (i, r) in enumerate(receivers)
-    println("  receivers[$i] = ", r, " | type: ", typeof(r))
-end
-
-println("DEBUG: bathymetry_int type = ", typeof(bathymetry_int))
-println("DEBUG: FishLogPotential type = ", typeof(fish_lp))
-println("DEBUG: FishPriorPotential type = ", typeof(fish_prior_lp))
 
 
-
-println("DEBUG: log_posterior(s_init, Ydepth, Yaccustic, bathymetry_int) = ", 
-    #log_posterior(s_init, Ydepth, Yaccustic, bathymetry_int))
-    log_posterior(s_init, Ydepth, Yaccustic, bathymetry_int, x_origin, y_origin, dx, dy))
-# ...existing code...
-#Pkg.add("BenchmarkTools")
-#import BenchmarkTools
-using BenchmarkTools
-@btime fish_lp($v_init) 
-
-
-v_tmp = similar(v_init)
-print(v_init)
-print(v_tmp)
-v_tmp === v_init      # ⇒ false
-v_tmp = similar(v_init)
-#@time sample_iid!(fish_prior_lp, Random.default_rng(), v_tmp; tries = 300)
-@time sample_iid!(fish_prior_lp, Random.default_rng(), v_tmp; tries = 2)
-#@time sample_iid!(fish_prior_lp, Random.default_rng(), similar(v_init))
-@btime fish_lp($v_init) 
-=#
+#find_grid_path = abspath("find_PT3_REALDATA.jl")
+#find_grid_path = abspath("C:\\Users\\teresa i robert\\Desktop\\TEST\\find_PT3_REALDATA.jl")
+find_grid_path = abspath("C:\\Users\\TERESA~1\\Desktop\\TEST\\find_PT3_REALDATA.jl")
 pt = pigeons(
     target            = fish_lp,               # log posterior to smaple from
     reference         = fish_prior_lp,         # reference distribution (that coincides with the distribution at beta=0)
     seed              = 1234,                  
-    n_rounds          = 7,                     # up to 2^nround–1 scans
-    n_chains          = 50,                    
-    checkpoint        = false,                
-    multithreaded     = false,    
+    n_rounds          = 3,                     # up to 2^nround–1 scans
+    n_chains          = 10,                    
+    checkpoint        = true,                
+    multithreaded     = true,    
+    on = ChildProcess(n_local_mpi_processes = 2,
+                        n_threads=2,
+                        dependencies = [find_grid_path]),
     record            = [traces; record_default()]  # registra traiettorie + diagnostica
+    #record        = [traces, online, round_trip, Pigeons.timing_extrema, Pigeons.allocation_extrema, index_process]
+
 )
 
+pt = Pigeons.load(pt_results)
+pt_samples  = Chains(pt)       
 
-pt_samples  = Chains(pt)         
+myplot3 = plot(pt.reduced_recorders.index_process)
+savefig(myplot3, "index_process_plot.svg")
 
 cold_last_v = pt_samples.value[end, 1: 2*tmax] |> vec
 cold_last_S = TransformVariables.transform(mapping, cold_last_v)

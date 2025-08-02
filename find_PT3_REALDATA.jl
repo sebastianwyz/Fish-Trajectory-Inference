@@ -482,6 +482,123 @@ function simulateRW_s_init(tmax; s0=(x=100.0, y=100.0),
 end
 =#
 
+#=
+struct FishLogPotential{YD,YA,BI,M,B}
+    Ydepth   ::Vector{YD}
+    Yacc     ::Vector{YA}
+    bathy_int::BI
+    mapping  ::M
+    v_init   ::Vector{Float64}
+    bridges  ::B
+end
+=#
+
+
+struct FishPriorPotential{M,V}
+    mapping :: M
+    v_init  :: V
+end
+
+function (lp::FishPriorPotential)(v::AbstractVector)
+    S = TransformVariables.transform(lp.mapping, v)
+    return log_prior(S)
+end
+
+
+
+struct FishLogPotential{YD,YA,BI,M}
+    Ydepth    ::Vector{YD}
+    Yacc      ::Vector{YA}
+    bathy_int ::BI
+    x_origin  ::Float64
+    y_origin  ::Float64
+    dx        ::Float64
+    dy        ::Float64
+    mapping   ::M
+    v_init    ::Vector{Float64}
+end
+
+function (lp::FishLogPotential)(v::AbstractVector)
+    S = TransformVariables.transform(lp.mapping, v)
+    return log_posterior(S, lp.Ydepth, lp.Yacc, lp.bathy_int, lp.x_origin, lp.y_origin, lp.dx, lp.dy)
+end
+
+
+
+dimension(lp::FishLogPotential) = length(lp.v_init)
+logdensity(lp::FishLogPotential, v::AbstractVector) = lp(v)
+capabilities(::FishLogPotential) = LogDensityProblems.LogDensityOrder{0}()
+
+dimension(lp::FishPriorPotential) = length(lp.v_init)
+logdensity(lp::FishPriorPotential, v::AbstractVector) = lp(v)
+capabilities(::FishPriorPotential) = LogDensityProblems.LogDensityOrder{0}()
+
+
+
+function initialization(lp::FishLogPotential,
+                        rng::AbstractRNG,
+                        replica_index::Int)
+    return copy(lp.v_init)        # oppure rand iniziale, ma dentro il supporto
+end
+
+function initialization(lp::FishLogPotential,
+                        rng::AbstractRNG,
+                        v::AbstractVector)
+    copyto!(v, lp.v_init)
+    return v
+end
+
+
+function sample_iid!(lp::FishPriorPotential,
+                     rng::AbstractRNG,
+                     v::AbstractVector;
+                     tries = 300)
+
+    s0, σ =  (x = 709_757.1116, y = 6.2677260356e6), 2.0
+
+    for _ in 1:tries
+        traj = simulateRW_free(tmax; s0 = s0, sigma = 2.0, rng = rng)
+        copyto!(v, TransformVariables.inverse(lp.mapping, traj))
+        return v
+    end
+
+    # fallback deterministico (mai su terra)
+    traj = fill(s0, tmax + 1)
+    @warn "sample_iid! fallback after $tries tentativi → path piatto"
+    copyto!(v, TransformVariables.inverse(lp.mapping, traj))
+    return v
+end
+
+function sample_iid!(lp::FishPriorPotential, replica, shared)
+    sample_iid!(lp, replica.rng, replica.state)   # riusa la funzione sopra
+    return replica.state
+end
+
+
+
+fish_lp = FishLogPotential(
+    Ydepth,
+    Yaccustic,
+    bathymetry_int,
+    x_origin,
+    y_origin,
+    dx,
+    dy,
+    mapping,
+    v_init
+)
+
+
+
+
+
+
+
+
+
+
+
+
 function simulate_bridge(tmax; A, B, σ = 3, α = 0.7, bathymetry_int)
     x = zeros(tmax);  y = zeros(tmax)
     x[1] = A.x;       y[1] = A.y
@@ -628,34 +745,8 @@ struct FishLogPotential{YD,YA,BI,BO,M}
 end
 =#
 
-struct FishLogPotential{YD,YA,BI,M}
-    Ydepth    ::Vector{YD}
-    Yacc      ::Vector{YA}
-    bathy_int ::BI
-    x_origin  ::Float64
-    y_origin  ::Float64
-    dx        ::Float64
-    dy        ::Float64
-    mapping   ::M
-    v_init    ::Vector{Float64}
-end
-
-function (lp::FishLogPotential)(v::AbstractVector)
-    S = TransformVariables.transform(lp.mapping, v)
-    return log_posterior(S, lp.Ydepth, lp.Yacc, lp.bathy_int, lp.x_origin, lp.y_origin, lp.dx, lp.dy)
-end
 
 
-#Reference:
-struct FishPriorPotential{M,V}
-    mapping :: M
-    v_init  :: V
-end
-
-function (lp::FishPriorPotential)(v::AbstractVector)
-    S = TransformVariables.transform(lp.mapping, v)
-    return log_prior(S)
-end
 
 
 # ----------- functions for plotting
