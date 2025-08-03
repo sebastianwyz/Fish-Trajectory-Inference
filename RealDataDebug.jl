@@ -1,24 +1,19 @@
-
-
-
 import Pkg
 using XLSX            # lettura xls
 using DataFrames      # gestione tabelle
 using Dates           # DateTime
 using Missings        # gestione dei NA
-#import Pigeons.Recorders: Receiver, DepthGauge
-#Pkg.add("CSV")
 import CSV
 using CSV
 
 Pkg.activate(".")
 Pkg.instantiate()
-#Pkg.add("GeoArrays")
-#import GeoArrays
 using GeoArrays
 using Images: load, Gray, channelview
 using Plots
-
+using StaticArrays: SVector
+using CoordinateTransformations
+using Plots
 include("find_PT3_REALDATA.jl")
 
 
@@ -27,18 +22,19 @@ include("find_PT3_REALDATA.jl")
 spatial_resolution = 200                         # spatial resolution
 
 
-# -- bathymetry
-#bathy_orig = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
-bathy_orig = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
 
-#bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
-bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_$(spatial_resolution)m.tif")
-#bathy = channelview(Gray.(load("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\bathymetry\\map_Firth_of_Lorn_200m.tif"))) * 100 .- 1;
-#print(bathy)
-bathy = bathy[340:360, 430:450, :] # zoom in a bit
-#bathy = bathy[300:380, 410:470, :] # zoom in a bit
+bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\TEST\\run_wahoo\\bathymetry\\map_Firth_of_Lorn_200m.tif")
 
+plot(bathy)
+arr = GeoArrays.values(bathy)
+itp = interpolate(arr, BSpline(Linear()))
+ex_itp = extrapolate(itp, -1.0)
 bathymetry_int = extrapolate(interpolate(bathy, BSpline(Linear())),-1.0);
+
+
+##############################################################################
+depth_matrix = bathy.A
+#print(depth_matrix)
 
 aff = bathy.f
 A = aff.linear      # 2x2 matrice (scaling e rotazione)
@@ -47,66 +43,16 @@ b = aff.translation # 2-element vector (origine, coordinate reali del pixel (1,1
 x_origin = b[1]     # coordinata x del centro del pixel (1,1)
 y_origin = b[2]     # coordinata y del centro del pixel (1,1)
 dx = A[1,1]         # passo in x (dimensione pixel)
-dy = A[2,2]         # passo in y (dimensione pixel)
+dy = A[2,2]        # passo in y (dimensione pixel)
 
 println("x_origin = ", x_origin)
 println("y_origin = ", y_origin)
 println("dx = ", dx)
 println("dy = ", dy)
 
-println(typeof(bathymetry_int))
-
-# Supponiamo che s sia un NamedTuple o struct con campi .x e .y
-s = (x=710799.3, y=6.267726e6)
-s = (x=709757.121649658, y=6.26772603565296e6)
-#s = (x = 10, y = 10)
-# bathymetry_int: oggetto di interpolazione
-# x_origin, y_origin, dx, dy: già calcolati come sopra
-
-depth = get_depth_p(s, bathymetry_int, x_origin, y_origin, dx, dy)
-
-depth = get_depth_p((x=709757.111649658,y=6.26772603565296e6), bathymetry_int, x_origin, y_origin, dx, dy)
-
-println("Profondità interpolata: ", depth)
 
 
-
-x_test = 10.1
-y_test = 20.0
-#x_test = 709757.111649658
-#y_test = 6.26772603565296e6
-row_start = 340
-col_start = 430
-
-x = 709812.9206002407
-y = 6.267736355257149e6
-idx_full = GeoArrays.indices(bathy_orig, (x_test, y_test))
-row_full, col_full = Tuple(idx_full)  # Converte il CartesianIndex in tupla
-row = row_full - row_start + 1
-col = col_full - col_start + 1
-bathymetry_int(row, col)
-println("Profondità interpolata: ", bathymetry_int(row, col))
-
-#depth = get_depth((x=710799.5, y=6.267726e6), bathymetry_int, bathy_orig, 340, 430)
-
-
-using Interpolations
-itp = interpolate(bathy, BSpline(Linear()), OnGrid())
-
-#depth = get_depth((x=710798.1, y=6.267726e6), itp, bathy_orig, row_start, col_start)
-
-
-x_test = 10.000000001
-y_test = 10
-#row, col = GeoArrays.indices(bathy, (x_test, y_test))
-println("Profondità interpolata: ", bathymetry_int(x_test, y_test))
-
-plt = heatmap(bathy,
-              color = :blues,
-              legend = false,
-              title = "Posizioni dei receiver sulla batimetria")
-#
-
+depth = get_depth_at(bathy,ex_itp, 709757.111649658, 6.26772603565296e6)
 
 depth_obs_df = CSV.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\observation\\depth.csv", DataFrame,
                         dateformat="yyyy-mm-dd H:M:S")
@@ -122,27 +68,26 @@ depth_signals = depth_obs_df.depth
 #end_idx = 10500
 start_idx = 1
 end_idx = 100
-# Filtra il DataFrame delle profondità
+
 depth_obs_df = depth_obs_df[start_idx:end_idx, :]
 depth_signals = depth_obs_df.depth
 ########################################################
 
-#
-##
+
 moorings_df = CSV.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\observation\\moorings.csv", DataFrame)
-#acoustic_pos = tuple.(moorings_df.receiver_x, moorings_df.receiver_y)
 acoustic_pos = [(x=x, y=y) for (x, y) in zip(moorings_df.receiver_x, moorings_df.receiver_y)]
-#print(rows)
 print(acoustic_pos[1])
 
+for point in acoustic_pos
+    print(get_depth_at(bathy, ex_itp, point.x, point.y), "\n")
+end
 acoustic_obs_df = CSV.read("C:\\Users\\teresa i robert\\Desktop\\Physics of Data\\PoD Fish tracking\\Code\\fish_tracking_HMC\\HMC\\observation\\acoustics.csv", DataFrame,
                            dateformat="yyyy-mm-dd H:M:S", missingstring="NA")
 
-                           print(acoustic_obs_df)
-# each row contains the observation of a sensor
-# '-1' stands for "no signal"
+
 acoustic_array = coalesce.(Array(acoustic_obs_df[:,2:end]), -1)
-###########################################################################
+
+
 acoustic_array = acoustic_array[start_idx:end_idx, :]
 for t in 1:size(acoustic_array, 1)
     for r in 1:size(acoustic_array, 2)
@@ -154,7 +99,6 @@ end
 
 
 
-
 plt = heatmap(bathy,
               color = :blues,
               legend = false,
@@ -163,25 +107,45 @@ xs = first.(acoustic_pos)      # prende il primo elemento di ogni tupla
 ys = last.(acoustic_pos)  
 scatter!(plt, xs, ys;
          color = :red,
-         markersize = 4,
+         markersize = 1,
          label = "Receivers")
-scatter!(plt, [709757.111649658], [6.26772603565296e6]; color = :green, markersize = 4, label = "Starting point")
-#print(xs)
+         
+scatter!(plt, [710057.121649658], [6.26772603565296e6]; color = :green, markersize = 40, label = "Starting point")
+scatter!(plt, [709757.111649658], [6.26772603565296e6]; color = :green, markersize = 1, label = "Starting point")
+
+
+x_min = 700000.0
+x_max = 715000.0
+y_min = 6.2550e6
+y_max = 6.2720e6
+
+
+
+start_point = (710057.121649658, 6.27100603565296e6)
+start_point = (707500.121649658, 6.27000603565296e6)
+
+
+get_depth_at(bathy, ex_itp, start_point[1], start_point[2])
+
+println("Starting point: ", start_point[1])
+
+plt = heatmap(bathy;
+    color = :blues,
+    legend = false,
+    title = "Zoom batimetria",
+    xlims = (x_min, x_max),
+    ylims = (y_min, y_max)
+)
+scatter!(plt, xs, ys; color = :red, markersize = 4, label = "Receivers")
+scatter!(plt, [710057.121649658], [6.26772603565296e6]; color = :green, markersize = 4, label = "Starting point")
+
+scatter!(plt, [start_point[1]], [start_point[2]]; color = :yellow, markersize = 4, label = "Starting point")
+
 display(plt)
 
 
-
-
-
-using Plots
-
-# Supponiamo che acoustic_array sia una matrice (tempi x receiver)
 times = Int[]
 receivers = Int[]
-
-
-
-
 
 for t in 1:size(acoustic_array, 1)
     for r in 1:size(acoustic_array, 2)
@@ -208,13 +172,9 @@ display(plt)
 n_bridges = 100
 bridges = []
 
-start_point = (x=709757.111649658, y=6.26772603565296e6)
-start_point = (709757.111649658, 6.26772603565296e6)
-idx = GeoArrays.indices(bathy, start_point)
-bathy[idx]
+start_point = (7100757.121649658, 6.26772603565296e6)
+get_depth_at(bathy, ex_itp, start_point[1], start_point[2])
 
-start_point = (70974.9526917059, 6.2677292579214815e6)
-idx = GeoArrays.indices(bathy, start_point)
 
 
 function build_receiver_sequence(acoustic_array,
@@ -294,7 +254,6 @@ function make_linear_traj(receiver_seq::Vector{<:NamedTuple},
 end
 
 
-print(t_steps)
 
 traj = make_linear_traj(receiver_seq, t_steps; noise_std = 3.0)
 
@@ -310,8 +269,6 @@ plot!(plt, traj)
 scatter!(plt, first.(traj), last.(traj); m=:circle, ms=2, color=:black)
 display(plt)
 
-print(traj)
-
 
 
 
@@ -320,13 +277,14 @@ xs = [p.x for p in traj]
 ys = [p.y for p in traj]
 delta_x = diff(xs)                # vettore delle differenze tra x consecutivi
 mean_delta_x = mean(abs.(delta_x))  # media dei valori assoluti delle differenze
-print(xs)
 println("Delta x medio: ", mean_delta_x)
 
 
 s_init = traj
-
-
+for i in 1:length(s_init)
+    print(get_depth_at(bathy, ex_itp, s_init[i].x, s_init[i].y), "\n ")
+end
+print(s_init[1])
 receivers = [
     Receiver(
         moorings_df.receiver_x[i],
@@ -392,7 +350,7 @@ traj = simulateRW_free(tmax; s0 = s0, sigma = 2.0, rng = Random.default_rng())
 
 
 fish_prior_lp = FishPriorPotential(mapping, v_init)
-#=
+
 fish_lp = FishLogPotential(
     Ydepth,
     Yaccustic,
@@ -404,31 +362,28 @@ fish_lp = FishLogPotential(
     mapping,
     v_init
 )
-=#
+
 using Pigeons
 using Pigeons: round_trip
 
 
-#find_grid_path = abspath("find_PT3_REALDATA.jl")
-#find_grid_path = abspath("C:\\Users\\teresa i robert\\Desktop\\TEST\\find_PT3_REALDATA.jl")
-find_grid_path = abspath("C:\\Users\\TERESA~1\\Desktop\\TEST\\find_PT3_REALDATA.jl")
 pt = pigeons(
     target            = fish_lp,               # log posterior to smaple from
     reference         = fish_prior_lp,         # reference distribution (that coincides with the distribution at beta=0)
     seed              = 1234,                  
-    n_rounds          = 3,                     # up to 2^nround–1 scans
+    n_rounds          = 6,                     # up to 2^nround–1 scans
     n_chains          = 10,                    
     checkpoint        = true,                
     multithreaded     = true,    
-    on = ChildProcess(n_local_mpi_processes = 2,
-                        n_threads=2,
-                        dependencies = [find_grid_path]),
+    #on = ChildProcess(n_local_mpi_processes = 2,
+    #                    n_threads=2,
+    #                    dependencies = [find_grid_path]),
     record            = [traces; record_default()]  # registra traiettorie + diagnostica
     #record        = [traces, online, round_trip, Pigeons.timing_extrema, Pigeons.allocation_extrema, index_process]
 
 )
 
-pt = Pigeons.load(pt_results)
+#pt = Pigeons.load(pt_results)
 pt_samples  = Chains(pt)       
 
 myplot3 = plot(pt.reduced_recorders.index_process)
@@ -443,22 +398,22 @@ xs_pigeons = [p.x for p in cold_last_S] #extracting trajectories
 ys_pigeons = [p.y for p in cold_last_S]
 
 
+delta_x = diff(xs_pigeons)                # vettore delle differenze tra x consecutivi
+mean_delta_x = mean(abs.(delta_x))  #
+
 
 plt = heatmap(bathy,
               color = :blues,
               legend = false,
-              title = "Posizioni dei receiver sulla batimetria")
+              title = "Posizioni dei receiver sulla batimetria",
+              xlims = (x_min, x_max),
+              ylims = (y_min, y_max))
 
 for rcv in receivers
-    plot!(plt, make_circle(rcv.x, rcv.y, 50), color=:red, lw=1, label=false)
+    plot!(plt, make_circle(rcv.x, rcv.y, 50), color=:red, lw=4, label=false)
 end
 plot!(plt, xs_pigeons, ys_pigeons, lw=3, color=:orange, label="Pigeons PT")
 plot!(plt, xs, ys, lw=3, color=:red, label="starting trajectory")
-#plot!(plt, xs_d, ys_d, lw=3, color=:blue, label="goal trajectory")
-#plot!(plt, make_circle(receiver1.x, receiver1.y, receiver1.dist), color=:red, label="Receiver 1")
-#plot!(plt, make_circle(receiver2.x, receiver2.y, receiver2.dist), color=:red, label="Receiver 1")
-
-#display(plt)
 
 
 logposteriors = [logdensity(fish_lp, pt_samples.value[i, 1:2*tmax]) for i in 1:size(pt_samples.value, 1)]
@@ -483,34 +438,16 @@ heatmap!(bathy,
               title = "Posizioni dei receiver sulla batimetria")
 
 
-#=
-n_iter, n_param, n_chain = size(pt_samples)
-idx_hot = n_chain  # la catena più calda
 
-for i in 1:n_iter
-    v = pt_samples[i, 1:2*n_points, idx_hot]
-    S = TransformVariables.transform(mapping, v)
-    xs = [p.x for p in S]
-    ys = [p.y for p in S]
-    plot!(xs, ys, alpha=0.2, color=:red, label=false)  # colore diverso per distinguerla
-end
-=#
-# Calcola i vettori nello spazio dei parametri
 v_cold = pt_samples.value[end, 1:2*tmax]
 v_init = TransformVariables.inverse(mapping, s_init)
-#v_depth = TransformVariables.inverse(mapping, s_depth)
 
-# Calcola i log-posterior
 logpost_cold = logdensity(fish_lp, v_cold)
 logpost_init = logdensity(fish_lp, v_init)
-#logpost_depth = logdensity(fish_lp, v_depth)
-#logpost_init2 = log_posterior(s_init, Ydepth, Yaccustic, bathymetry_int)
-#logpost_depth2 = log_posterior(s_depth, Ydepth, Yaccustic, bathymetry_int)
 
 logpost_init2 = log_posterior(s_init, Ydepth, Yaccustic, bathymetry_int, x_origin, y_origin, dx, dy)
 println("Log-posterior cold chain: ", logpost_cold)
 println("Log-posterior initial bridge: ", logpost_init)
-#println("Log-posterior depth bridge: ", logpost_depth)
 
 
 
@@ -518,17 +455,7 @@ print(cold_last_S)
 YdepthPIGEONS = Tuple{Int, Float64, DepthGauge}[] 
 depthgaugep = DepthGauge()
 for (t, point) in enumerate(cold_last_S)
-# Calcola la posizione frazionaria rispetto al ritaglio
-    idx_full = GeoArrays.indices(bathy_orig, (point[1], point[2]))
-    row_full, col_full = Tuple(idx_full)
-    row = row_full - row_start + 1
-    col = col_full - col_start + 1
-    depth = bathymetry_int(row, col)
-    #println("Profondità interpolata: ", bathymetry_int(row, col))
-    println("t ", t, "DEBUG: point = ", point[1])
-    #depth = get_depth((x=point[1], y=point[2]), bathymetry_int, bathy_orig, 340, 430)
-    depth = get_depth_p((x=point[1], y=point[2]), bathymetry_int, x_origin, y_origin, dx, dy)
-
+    depth = get_depth_at(bathy, ex_itp, point[1], point[2])
     println("DEBUG: depth = ", depth)
     push!(YdepthPIGEONS, (t, depth, depthgaugep))
 end

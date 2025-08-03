@@ -40,7 +40,7 @@ direction(c1, c2) = atan(c1.x - c2.x,  c1.y - c2.y)
 
 
 function log_p_moveRW(c1, c2)
-    σ = 10.0 #1
+    σ = 3.0 #1
     logpdf(Normal(c2.x, σ), c1.x) +
         logpdf(Normal(c2.y, σ), c1.y)  #uniform
 end
@@ -207,9 +207,23 @@ function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, map_int, bat
     logpdf(dist, signal)
 end
 =#
+function get_depth_at(bathy::GeoArray, interp, x::Float64, y::Float64)
+    
+    f_inv = inv(bathy.f)
+    colrow = f_inv(SVector(x, y))
+    row = colrow[1]
+    col = colrow[2]
+    return interp(row, col)
+end
 
 function log_prob_signal(signal, s::NamedTuple, device::DepthGauge, bathymetry_int, x_origin, y_origin, dx, dy)
-    max_depth = get_depth_p(s, bathymetry_int, x_origin, y_origin, dx, dy)
+    #max_depth = get_depth_p(s, bathymetry_int, x_origin, y_origin, dx, dy)
+    #bathy = GeoArrays.read("C:\\Users\\teresa i robert\\Desktop\\TEST\\run_wahoo\\bathymetry\\map_Firth_of_Lorn_200m.tif")
+    #arr = GeoArrays.values(bathy)
+    #itp = interpolate(arr, BSpline(Linear()))
+    #ex_itp = extrapolate(itp, -1.0)
+
+    max_depth = get_depth_at(bathy,ex_itp, s.x, s.y)
     dist = Normal(max_depth, 2)
     return logpdf(dist, signal)
 end
@@ -575,18 +589,6 @@ function sample_iid!(lp::FishPriorPotential, replica, shared)
 end
 
 
-
-fish_lp = FishLogPotential(
-    Ydepth,
-    Yaccustic,
-    bathymetry_int,
-    x_origin,
-    y_origin,
-    dx,
-    dy,
-    mapping,
-    v_init
-)
 
 
 
