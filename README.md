@@ -1,15 +1,11 @@
-================================================================================
                   Fish Tracking Analysis with Parallel Tempering
-================================================================================
 
 A Julia-based implementation for tracking fish movement using Bayesian inference
 with Parallel Tempering (PT). The code combines acoustic receiver data, depth 
 measurements, and bathymetric information to reconstruct fish trajectories in 
 the Firth of Lorn.
 
-================================================================================
 OVERVIEW
-================================================================================
 
 This project uses Pigeons.jl for parallel tempering Monte Carlo sampling to 
 infer fish trajectories from noisy observational data. The approach integrates:
