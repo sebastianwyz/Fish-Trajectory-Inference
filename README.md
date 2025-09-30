@@ -1,12 +1,12 @@
 Fish Tracking Analysis with Parallel Tempering
-
+--------------
 A Julia-based implementation for tracking fish movement using Bayesian inference
 with Parallel Tempering (PT). The code combines acoustic receiver data, depth 
 measurements, and bathymetric information to reconstruct fish trajectories in 
 the Firth of Lorn.
 
 OVERVIEW
-
+--------------
 This project uses Pigeons.jl for parallel tempering Monte Carlo sampling to 
 infer fish trajectories from noisy observational data. The approach integrates:
 
@@ -15,7 +15,7 @@ infer fish trajectories from noisy observational data. The approach integrates:
   * Bathymetric constraints to ensure realistic paths
 
 REQUIREMENTS
-
+--------------
 Julia Packages
 --------------
 using XLSX, DataFrames, Dates, Missings, CSV
@@ -46,7 +46,7 @@ The code expects the following data files:
    Values: 1 (detection), 0 (no detection), NA (missing)
 
 CONFIGURATION
-
+--------------
 Edit the configuration parameters in the main script:
 
 const SPATIAL_RESOLUTION = 200      # Bathymetry resolution (meters)
@@ -66,7 +66,7 @@ const MOORINGS_CSV = "path/to/moorings.csv"
 const ACOUSTICS_CSV = "path/to/acoustics.csv"
 
 WORKFLOW
-
+--------------
 1. Data Loading and Preprocessing
 ----------------------------------
 The pipeline loads and prepares all observational data:
@@ -120,10 +120,8 @@ Extracts the MAP (Maximum A Posteriori) trajectory and creates visualizations:
   - Log-posterior evolution
   - Depth comparison (observed vs. estimated)
 
-================================================================================
 MODEL COMPONENTS
-================================================================================
-
+--------------
 Prior Distribution
 ------------------
 A random walk model with Gaussian increments:
@@ -154,10 +152,8 @@ Combines prior and likelihood:
 
 log_posterior = log_prior + Σ log_prob_acoustic + Σ log_prob_depth
 
-================================================================================
 KEY FUNCTIONS
-================================================================================
-
+--------------
 Data Loading
 ------------
   - load_bathymetry(): Loads GeoTIFF and creates interpolator
@@ -180,10 +176,8 @@ Visualization
 -------------
   - plot_trajectory(): Creates bathymetry map with receivers and path
 
-================================================================================
 OUTPUT
-================================================================================
-
+--------------
 The code produces three main visualizations:
 
 1. Trajectory Plot: Shows the estimated fish path overlaid on bathymetry 
@@ -194,19 +188,15 @@ The code produces three main visualizations:
 3. Depth Comparison: Compares observed depths with estimated depths along 
    the trajectory
 
-================================================================================
 COMPUTATIONAL NOTES
-================================================================================
-
+--------------
   - The parallel tempering sampler can be computationally intensive
   - Consider starting with a small segment (e.g., 100-200 time points)
   - Use multithreaded = true to leverage multiple CPU cores
   - Checkpointing allows resuming interrupted runs
 
-================================================================================
 TROUBLESHOOTING
-================================================================================
-
+--------------
 Common Issues
 -------------
 
@@ -224,18 +214,14 @@ Slow sampling:
 Memory issues: 
   Reduce n_chains or analyze trajectory in smaller chunks.
 
-================================================================================
 REFERENCES
-================================================================================
-
+--------------
   - Pigeons.jl: Parallel tempering framework (https://pigeons.run)
   - Starfish.jl: Shortest path trajectory finding
   - TransformVariables.jl: Parameter space transformations
 
-================================================================================
 LICENSE
-================================================================================
-
+--------------
 Please check with the original authors for licensing information.
 
 ================================================================================
