@@ -113,6 +113,98 @@ pt = pigeons(
     multithreaded = true
 )
 
+
+
+EXPLORER METHODS IN PIGEONS.JL
+--------
+
+Standard Sampler (Slice Sampling)
+----------------------------------
+The default explorer implements a slice sampler that operates without gradient 
+information. It constructs proposals by:
+  - Defining a slice at the current log-density level
+  - Sampling uniformly from the region above this slice
+  - Accepting proposals based on the slice criterion
+
+ADVANTAGES:
+  * Gradient-free: works with any target distribution, including 
+    non-differentiable posteriors
+  * Robust to poorly scaled parameters
+  * No tuning of step sizes required
+  * Effective for low-to-moderate dimensional problems
+
+LIMITATIONS:
+  * Does not exploit gradient information when available
+  * Slower convergence in high-dimensional spaces
+  * Less efficient for strongly correlated parameters
+  * Scales poorly beyond ~50 dimensions
+
+WHEN TO USE: 
+Default choice for initial exploration, non-smooth targets, or when gradient 
+computation is expensive or unavailable.
+
+--------------------------------------------------------------------------------
+
+MALA (Metropolis-Adjusted Langevin Algorithm)
+----------------------------------------------
+MALA incorporates first-order gradient information to guide proposals toward 
+high-probability regions. The proposal mechanism follows a Langevin diffusion:
+
+    θ' = θ + (ε²/2)∇log π(θ) + ε·Z,  Z ~ N(0, I)
+
+where ε is a fixed step size and ∇log π(θ) is the gradient of the log-posterior.
+
+ADVANTAGES:
+  * Exploits gradient information for directed exploration
+  * More efficient than random-walk samplers in smooth, high-dimensional spaces
+  * Scales better to moderate dimensions (50-200)
+  * Provides substantial speedup when gradients are cheap to compute
+
+LIMITATIONS:
+  * Requires manual step size tuning (ε parameter)
+  * Performance highly sensitive to step size choice
+  * Suboptimal step size can lead to low acceptance rates or slow mixing
+  * Requires differentiable target distribution
+  * No automatic adaptation to local geometry
+
+WHEN TO USE: 
+When gradients are available and computational cost is acceptable, particularly 
+for moderately high-dimensional problems where manual tuning is feasible.
+
+--------------------------------------------------------------------------------
+
+AutoMALA (Automated MALA)
+-------------------------
+AutoMALA extends MALA with automatic step size adaptation using a preconditioner 
+learned during sampling. The algorithm:
+  - Adapts step sizes locally based on gradient magnitude and curvature
+  - Learns a diagonal or full preconditioner matrix
+  - Continuously tunes parameters to maintain target acceptance rates
+
+ADVANTAGES:
+  * Automatic tuning eliminates manual parameter selection
+  * Adapts to local posterior geometry
+  * Robust across different scales and parameter correlations
+  * Maintains efficiency of gradient-based methods
+  * Particularly effective for challenging, multi-scale posteriors
+  * Reduces sensitivity to initial step size choice
+
+LIMITATIONS:
+  * Higher computational overhead per iteration than MALA
+  * Adaptation phase requires burn-in period
+  * May require more iterations in very high dimensions (>500)
+  * Gradient computation still required
+  * Additional memory for storing preconditioner
+
+WHEN TO USE: 
+Recommended default for gradient-based sampling. Especially valuable for:
+  - Problems with parameters at different scales
+  - Posteriors with varying curvature
+  - When manual tuning is impractical
+  - Production-level inference requiring robustness
+
+
+
 5. Results Extraction and Visualization
 ----------------------------------------
 Extracts the MAP (Maximum A Posteriori) trajectory and creates visualizations:
