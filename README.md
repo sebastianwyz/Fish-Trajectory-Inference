@@ -1,4 +1,4 @@
-                  Fish Tracking Analysis with Parallel Tempering
+Fish Tracking Analysis with Parallel Tempering
 
 A Julia-based implementation for tracking fish movement using Bayesian inference
 with Parallel Tempering (PT). The code combines acoustic receiver data, depth 
@@ -14,9 +14,7 @@ infer fish trajectories from noisy observational data. The approach integrates:
   * Depth measurements from tagged fish
   * Bathymetric constraints to ensure realistic paths
 
-================================================================================
 REQUIREMENTS
-================================================================================
 
 Julia Packages
 --------------
@@ -47,9 +45,7 @@ The code expects the following data files:
    Format: time, receiver_1, receiver_2, ...
    Values: 1 (detection), 0 (no detection), NA (missing)
 
-================================================================================
 CONFIGURATION
-================================================================================
 
 Edit the configuration parameters in the main script:
 
@@ -69,9 +65,7 @@ const DEPTH_CSV = "path/to/depth.csv"
 const MOORINGS_CSV = "path/to/moorings.csv"
 const ACOUSTICS_CSV = "path/to/acoustics.csv"
 
-================================================================================
 WORKFLOW
-================================================================================
 
 1. Data Loading and Preprocessing
 ----------------------------------
