@@ -220,13 +220,4 @@ REFERENCES
   - Starfish.jl: Shortest path trajectory finding
   - TransformVariables.jl: Parameter space transformations
 
-LICENSE
---------------
-Please check with the original authors for licensing information.
 
-================================================================================
-CONTACT
-================================================================================
-
-For questions about the implementation, refer to the original code authors 
-or the Pigeons.jl community.
