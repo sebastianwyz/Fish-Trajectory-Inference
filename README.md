@@ -16,8 +16,7 @@ infer fish trajectories from noisy observational data. The approach integrates:
 
 REQUIREMENTS
 --------------
-Julia Packages
---------------
+
 using XLSX, DataFrames, Dates, Missings, CSV
 using GeoArrays, Images, Plots, StaticArrays, CoordinateTransformations
 using Interpolations, Statistics
@@ -71,13 +70,8 @@ WORKFLOW
 ----------------------------------
 The pipeline loads and prepares all observational data:
 
-# Load bathymetry with interpolation
 bathy_data = load_bathymetry(BATHY_PATH)
-
-# Load depth observations
 depth_obs_df = load_depth_data(DEPTH_CSV, START_IDX, END_IDX)
-
-# Load acoustic data
 acoustic_data = load_acoustic_data(MOORINGS_CSV, ACOUSTICS_CSV, START_IDX, END_IDX)
 
 2. Initial Trajectory Generation
@@ -212,8 +206,7 @@ Extracts the MAP (Maximum A Posteriori) trajectory and creates visualizations:
   - Log-posterior evolution
   - Depth comparison (observed vs. estimated)
 
-MODEL COMPONENTS
---------------
+
 Prior Distribution
 ------------------
 A random walk model with Gaussian increments:
@@ -244,13 +237,6 @@ Combines prior and likelihood:
 
 log_posterior = log_prior + Σ log_prob_acoustic + Σ log_prob_depth
 
-KEY FUNCTIONS
---------------
-Data Loading
-------------
-  - load_bathymetry(): Loads GeoTIFF and creates interpolator
-  - load_depth_data(): Reads and cleans depth observations
-  - load_acoustic_data(): Loads receiver positions and detections
 
 Trajectory Processing
 ---------------------
@@ -287,24 +273,6 @@ COMPUTATIONAL NOTES
   - Use multithreaded = true to leverage multiple CPU cores
   - Checkpointing allows resuming interrupted runs
 
-TROUBLESHOOTING
---------------
-Common Issues
--------------
-
-NaN values in trajectory: 
-  Check that the Starfish shortest path succeeded. Adjust goal_tol parameter 
-  if needed.
-
-Out of bounds errors: 
-  Verify that receiver coordinates match the bathymetry coordinate system.
-
-Slow sampling: 
-  Reduce end_segment to analyze shorter trajectory segments, or increase 
-  n_rounds gradually.
-
-Memory issues: 
-  Reduce n_chains or analyze trajectory in smaller chunks.
 
 REFERENCES
 --------------
