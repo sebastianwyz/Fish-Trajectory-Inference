@@ -349,7 +349,6 @@ function infer_trajectories(Ydepth, Yaccustic, bathymetry_interpolated;
 end
 
 
-
 #------------- defining the target and reference distribution for pigeons
 #Target:
 struct FishLogPotential{YD,YA,BI,M,B}
