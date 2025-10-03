@@ -1,3 +1,8 @@
+FOR REAL DATA THE ONLY RELEVANT FILES ARE:
+Find_PT.jl
+run_inference_PT.jl
+--------------
+
 Fish Tracking Analysis with Parallel Tempering
 --------------
 A Julia-based implementation for tracking fish movement using Bayesian inference
