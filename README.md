@@ -1,5 +1,5 @@
 FOR REAL DATA THE ONLY RELEVANT FILES ARE:
-Find_PT.jl
+find_PT.jl
 run_inference_PT.jl
 --------------
 
